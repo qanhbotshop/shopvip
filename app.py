@@ -1,10 +1,6 @@
 from flask import Flask, render_template_string, request, jsonify
 from flask_cors import CORS
-import json
-import os
-import secrets
-import string
-import requests
+import json, os, secrets, string, requests
 from datetime import datetime, timedelta
 from time import time
 
@@ -12,15 +8,12 @@ app = Flask(__name__)
 CORS(app)
 app.secret_key = secrets.token_hex(32)
 
-# ===== CONFIG =====
 BOT_TOKEN = "8466851320:AAGc77X4DnPQRNkw7rVUhlpJVIcBlOcSlDA"
 CHAT_ID = "8588555065"
 OWNER_ID = 8588555065
 LINK4M_API_KEY = "65c47d157fbdff4d79625e57"
 PARTNER_ID = "70406595609"
 PARTNER_KEY = "add9c7d61cb54ff1b447e2188c71a8c2"
-
-# ===== DATA =====
 DATA_FILE = "/tmp/data.json"
 
 def load_data():
@@ -28,13 +21,379 @@ def load_data():
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r') as f:
                 return json.load(f)
-    except: pass
-    return {"free_keys": {}, "licenses": {}, "used_keys": {}, "keys_history": [], "pending_verify": {}}
+    except:
+        pass
+    return {"free_keys": {}, "licenses": {}, "used_keys": {}, "keys_history": []}
 
 def save_data(d):
     try:
         with open(DATA_FILE, 'w') as f:
             json.dump(d, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+data = load_data()
+
+def generate_key():
+    c = string.ascii_uppercase + string.digits
+    r = lambda l: ''.join(secrets.choice(c) for _ in range(l))
+    return f"QANH-{r(10)}-{r(10)}-{r(10)}-{r(5)}"
+
+pending_verify = {}
+
+# ===== HTML =====
+HTML = """<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QANH SHOP</title>
+    <style>
+        :root{--gold:#FFD700;--green:#00ff00;--red:#ff4444}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:Arial;color:#fff;min-height:100vh;background:linear-gradient(135deg,#0f0c29,#302b63,#24243e)}
+        .navbar{background:rgba(26,26,46,0.95);padding:15px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--gold)}
+        .navbar .logo{font-size:22px;font-weight:bold;color:var(--gold)}
+        .navbar .balance{background:rgba(0,0,0,0.5);border:1px solid var(--gold);border-radius:20px;padding:8px 15px;color:var(--gold);font-weight:bold;cursor:pointer;font-size:14px}
+        .navbar .btn-nav{background:var(--gold);color:#000;border:none;border-radius:20px;padding:8px 18px;font-weight:bold;cursor:pointer;font-size:13px}
+        .container{max-width:500px;margin:0 auto;padding:20px}
+        .card{background:rgba(26,26,46,0.9);border-radius:15px;padding:20px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.1)}
+        .card h2{color:var(--gold);margin-bottom:10px;font-size:18px}
+        .card .price{font-size:32px;font-weight:bold;color:var(--gold)}
+        .card .duration{color:#aaa;margin:5px 0}
+        .card ul{list-style:none;margin:10px 0}
+        .card ul li{padding:4px 0;color:#ccc;font-size:14px}
+        .btn-card{display:block;width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer;text-align:center;margin-top:10px}
+        .btn-card:disabled{opacity:0.5}
+        .btn-green{background:#00cc00;color:#fff}
+        .btn-gold{background:#FFD700;color:#000}
+        .btn-blue{background:#0088cc;color:#fff}
+        .btn-purple{background:#9933ff;color:#fff}
+        .btn-recharge{background:#00ff88;color:#000;font-size:18px;padding:18px}
+        .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:bold}
+        .badge-free{background:#00cc00;color:#fff}
+        .badge-vip{background:var(--gold);color:#000}
+        .badge-hot{background:#ff6600;color:#fff;animation:pulse 1s infinite}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+        .tabs{display:flex;margin-bottom:15px;border-radius:10px;overflow:hidden}
+        .tab{flex:1;text-align:center;padding:12px;background:rgba(26,26,46,0.9);border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-weight:bold;color:#aaa}
+        .tab.active{background:var(--gold);color:#000}
+        .hidden{display:none!important}
+        .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:1000;justify-content:center;align-items:center}
+        .modal.active{display:flex}
+        .modal-content{background:rgba(26,26,46,0.98);border-radius:15px;padding:25px;width:90%;max-width:420px;text-align:center;border:1px solid var(--gold)}
+        .modal-content h3{color:var(--gold);margin-bottom:15px}
+        .modal-content input,.modal-content select{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #333;background:#0f0f1f;color:#fff;font-size:14px}
+        .close-btn{float:right;color:var(--gold);font-size:24px;cursor:pointer;background:none;border:none}
+        .key-display{font-size:14px;color:var(--green);font-family:monospace;background:#000;padding:15px;border-radius:8px;margin:10px 0;word-break:break-all;border:1px dashed var(--green)}
+        .copy-btn{background:var(--gold);color:#000;border:none;padding:12px;border-radius:8px;cursor:pointer;font-weight:bold;width:100%}
+        table{width:100%;border-collapse:collapse;font-size:13px}
+        th{background:var(--gold);color:#000;padding:10px}
+        td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:center}
+        .key-link{color:var(--green);cursor:pointer;text-decoration:underline}
+        .loading{display:inline-block;width:30px;height:30px;border:3px solid #333;border-top:3px solid var(--gold);border-radius:50%;animation:spin 1s linear infinite}
+        @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+        .alert-box{background:rgba(255,0,0,0.1);border:1px solid var(--red);border-radius:10px;padding:15px;margin:10px 0;color:var(--red)}
+        .success-box{background:rgba(0,255,0,0.1);border:1px solid var(--green);border-radius:10px;padding:15px;margin:10px 0;color:var(--green)}
+        .toast{position:fixed;top:20px;right:20px;z-index:10000;padding:15px 20px;border-radius:10px;color:#fff;font-weight:bold;animation:slideIn 0.5s}
+        .toast-success{background:#00cc00}.toast-error{background:#ff4444}
+        @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+    </style>
+</head>
+<body>
+<div class="navbar">
+    <div class="logo">QANH SHOP</div>
+    <div class="user-info">
+        <div class="balance" id="balanceDisplay">0d</div>
+        <button class="btn-nav" id="authBtn" onclick="showAuthModal()">DANG NHAP</button>
+    </div>
+</div>
+<div class="container">
+    <div class="card" style="border-color:#00ff88">
+        <h2>NAP TIEN</h2>
+        <select id="rcType"><option value="">Chon nha mang</option><option value="VIETTEL">Viettel</option><option value="MOBIFONE">Mobifone</option><option value="VINAPHONE">Vinaphone</option></select>
+        <select id="rcAmount"><option value="">Chon menh gia</option><option value="10000">10k</option><option value="20000">20k</option><option value="50000">50k</option><option value="100000">100k</option><option value="200000">200k</option><option value="500000">500k</option></select>
+        <input type="text" id="rcPin" placeholder="Ma the">
+        <input type="text" id="rcSerial" placeholder="Serial">
+        <button class="btn-card btn-recharge" onclick="recharge()">NAP NGAY</button>
+        <div id="rcResult"></div>
+    </div>
+    <div class="card" style="border-color:#00cc00">
+        <h2>KEY FREE <span class="badge badge-free">MIEN PHI</span></h2>
+        <div class="price">0d</div><div class="duration">1 ngay</div>
+        <button class="btn-card btn-green" id="btnFreeKey" onclick="getFreeKey()">NHAN KEY FREE</button>
+        <div id="verifyStatus"></div>
+    </div>
+    <div class="card" style="border-color:#9933ff">
+        <h2>KEY 1 TUAN <span class="badge badge-hot">HOT</span></h2>
+        <div class="price">50k</div><div class="duration">7 ngay</div>
+        <button class="btn-card btn-purple" onclick="buyKey('week')">MUA NGAY</button>
+    </div>
+    <div class="card" style="border-color:#0088cc">
+        <h2>KEY 1 THANG <span class="badge badge-vip">VIP</span></h2>
+        <div class="price">150k</div><div class="duration">30 ngay</div>
+        <button class="btn-card btn-blue" onclick="buyKey('month')">MUA NGAY</button>
+    </div>
+    <div class="card" style="border-color:#FFD700">
+        <h2>KEY VINH VIEN <span class="badge badge-vip">PREMIUM</span></h2>
+        <div class="price">250k</div><div class="duration">Khong gioi han</div>
+        <button class="btn-card btn-gold" onclick="buyKey('forever')">MUA NGAY</button>
+    </div>
+</div>
+<div class="modal" id="authModal"><div class="modal-content">
+    <span class="close-btn" onclick="document.getElementById('authModal').classList.remove('active')">x</span>
+    <h3>DANG NHAP / DANG KY</h3>
+    <input type="text" id="authEmail" placeholder="Email">
+    <input type="password" id="authPassword" placeholder="Mat khau">
+    <button class="btn-card btn-gold" onclick="doAuth()">DANG NHAP</button>
+</div></div>
+<div class="modal" id="keyModal"><div class="modal-content">
+    <span class="close-btn" onclick="document.getElementById('keyModal').classList.remove('active')">x</span>
+    <h3 style="color:#0f0">THANH CONG!</h3>
+    <p id="keyMessage"></p>
+    <div class="key-display" id="keyDisplay"></div>
+    <button class="copy-btn" onclick="copyKey()">COPY KEY</button>
+</div></div>
+<script>
+var API=window.location.origin;
+var PARTNER_ID='"""+PARTNER_ID+"""';
+var PARTNER_KEY='"""+PARTNER_KEY+"""';
+var ADMIN_EMAIL='admin@qanhshop.com';
+var ADMIN_PASS='QanhAdmin@2025#Secret!';
+var currentUser=null;
+var userKeys=[];
+var userRecharges=[];
+var allUsers=[];
+var keyPrices={week:50000,month:150000,forever:250000};
+var keyNames={week:'KEY 1 TUAN',month:'KEY 1 THANG',forever:'KEY VINH VIEN'};
+var keyDurations={week:'7 NGAY',month:'30 NGAY',forever:'VINH VIEN'};
+var verifyInterval=null;
+var currentVerifyToken=null;
+try{
+    currentUser=JSON.parse(localStorage.getItem('quanh_user'))||null;
+    userKeys=JSON.parse(localStorage.getItem('quanh_keys'))||[];
+    userRecharges=JSON.parse(localStorage.getItem('quanh_recharges'))||[];
+    allUsers=JSON.parse(localStorage.getItem('quanh_all_users'))||[];
+}catch(e){currentUser=null;userKeys=[];userRecharges=[];allUsers=[];}
+
+function saveAll(){
+    try{
+        if(currentUser)localStorage.setItem('quanh_user',JSON.stringify(currentUser));
+        localStorage.setItem('quanh_keys',JSON.stringify(userKeys));
+        localStorage.setItem('quanh_recharges',JSON.stringify(userRecharges));
+        localStorage.setItem('quanh_all_users',JSON.stringify(allUsers));
+    }catch(e){}
+}
+
+function updateUI(){
+    if(!currentUser){document.getElementById('authBtn').innerText='DANG NHAP';document.getElementById('balanceDisplay').innerText='0d';}
+    else{document.getElementById('authBtn').innerText=currentUser.name||'User';document.getElementById('balanceDisplay').innerText=(currentUser.balance||0).toLocaleString()+'d';}
+}
+
+function showToast(msg,type){
+    var t=document.createElement('div');
+    t.className='toast toast-'+(type||'success');
+    t.innerText=msg;
+    document.body.appendChild(t);
+    setTimeout(function(){t.remove()},2500);
+}
+
+function showAuthModal(){
+    if(currentUser){if(confirm('Dang xuat?')){currentUser=null;localStorage.removeItem('quanh_user');updateUI();}return;}
+    document.getElementById('authModal').classList.add('active');
+}
+
+function doAuth(){
+    var email=document.getElementById('authEmail').value.trim();
+    var pass=document.getElementById('authPassword').value.trim();
+    if(!email||!pass){showToast('Dien day du!','error');return;}
+    if(email===ADMIN_EMAIL&&pass===ADMIN_PASS){
+        currentUser={name:'Admin',email:ADMIN_EMAIL,password:pass,balance:999999999,isAdmin:true};
+        saveAll();document.getElementById('authModal').classList.remove('active');updateUI();showToast('Admin!');return;
+    }
+    var found=false;
+    for(var i=0;i<allUsers.length;i++){if(allUsers[i].email===email){if(allUsers[i].password!==pass){showToast('Sai mat khau!','error');return;}currentUser=allUsers[i];found=true;break;}}
+    if(!found){currentUser={name:email.split('@')[0],email:email,password:pass,balance:0,isAdmin:false};allUsers.push(currentUser);}
+    saveAll();document.getElementById('authModal').classList.remove('active');updateUI();showToast('Thanh cong!');
+}
+
+function recharge(){
+    if(!currentUser){showToast('Dang nhap!','error');showAuthModal();return;}
+    var telco=document.getElementById('rcType').value;
+    var amount=parseInt(document.getElementById('rcAmount').value);
+    var pin=document.getElementById('rcPin').value.trim();
+    var serial=document.getElementById('rcSerial').value.trim();
+    if(!telco||!amount||!pin||!serial){showToast('Dien day du!','error');return;}
+    document.getElementById('rcResult').innerHTML='<div class="loading"></div>';
+    var xhr=new XMLHttpRequest();
+    xhr.open('POST','https://api.shoppay.vn/card/charge',true);
+    xhr.setRequestHeader('Content-Type','application/json');
+    xhr.onload=function(){
+        try{
+            var data=JSON.parse(xhr.responseText);
+            if(data.status===1){
+                currentUser.balance=(currentUser.balance||0)+amount;
+                for(var i=0;i<allUsers.length;i++){if(allUsers[i].email===currentUser.email){allUsers[i].balance=currentUser.balance;break;}}
+                userRecharges.unshift({type:telco,amount:amount,time:new Date().toLocaleString(),status:'OK'});
+                saveAll();updateUI();
+                document.getElementById('rcResult').innerHTML='<div class="success-box">Nap thanh cong '+amount.toLocaleString()+'d!</div>';
+                document.getElementById('rcPin').value='';document.getElementById('rcSerial').value='';
+            }else{document.getElementById('rcResult').innerHTML='<div class="alert-box">'+(data.message||'Loi')+'</div>';}
+        }catch(e){document.getElementById('rcResult').innerHTML='<div class="alert-box">Loi!</div>';}
+    };
+    xhr.onerror=function(){document.getElementById('rcResult').innerHTML='<div class="alert-box">Loi ket noi!</div>';};
+    xhr.send(JSON.stringify({partner_id:PARTNER_ID,partner_key:PARTNER_KEY,telco:telco,amount:amount,pin:pin,serial:serial}));
+}
+
+function buyKey(type){
+    if(!currentUser){showToast('Dang nhap!','error');showAuthModal();return;}
+    var price=keyPrices[type];
+    if((currentUser.balance||0)<price){showToast('Khong du!','error');return;}
+    if(!confirm('Mua '+keyNames[type]+' gia '+price.toLocaleString()+'d?'))return;
+    currentUser.balance-=price;
+    for(var i=0;i<allUsers.length;i++){if(allUsers[i].email===currentUser.email){allUsers[i].balance=currentUser.balance;break;}}
+    saveAll();updateUI();
+    var xhr=new XMLHttpRequest();
+    xhr.open('GET',API+'/api/buy-key?type='+type,true);
+    xhr.onload=function(){
+        try{
+            var data=JSON.parse(xhr.responseText);
+            if(data.status==='success'){
+                userKeys.unshift({key:data.key,type:keyNames[type],duration:keyDurations[type],time:new Date().toLocaleString()});
+                saveAll();
+                document.getElementById('keyDisplay').innerText=data.key;
+                document.getElementById('keyMessage').innerText='Mua '+keyNames[type]+' thanh cong!';
+                document.getElementById('keyModal').classList.add('active');
+                showToast('Mua thanh cong!');
+            }else{currentUser.balance+=price;saveAll();updateUI();showToast('Loi!','error');}
+        }catch(e){currentUser.balance+=price;saveAll();updateUI();}
+    };
+    xhr.send();
+}
+
+function getFreeKey(){
+    if(!currentUser){showToast('Dang nhap!','error');showAuthModal();return;}
+    var btn=document.getElementById('btnFreeKey');
+    btn.disabled=true;btn.innerText='Dang tao...';
+    var xhr=new XMLHttpRequest();
+    xhr.open('GET',API+'/api/get-free-link?email='+encodeURIComponent(currentUser.email),true);
+    xhr.onload=function(){
+        try{
+            var data=JSON.parse(xhr.responseText);
+            if(data.status==='success'&&data.link4m){
+                currentVerifyToken=data.token;
+                document.getElementById('verifyStatus').innerHTML='<div class="success-box">HOAN THANH NHIEM VU DE NHAN KEY!</div>';
+                window.open(data.link4m,'_blank');
+                startVerifyCheck();
+            }else if(data.status==='error'){
+                document.getElementById('verifyStatus').innerHTML='<div class="alert-box">'+data.message+'</div>';
+            }
+        }catch(e){}
+        btn.disabled=false;btn.innerText='NHAN KEY FREE';
+    };
+    xhr.send();
+}
+
+function startVerifyCheck(){
+    var count=0;
+    if(verifyInterval)clearInterval(verifyInterval);
+    verifyInterval=setInterval(function(){
+        count++;
+        var xhr=new XMLHttpRequest();
+        xhr.open('GET',API+'/api/check-verify?token='+currentVerifyToken,true);
+        xhr.onload=function(){
+            try{
+                var data=JSON.parse(xhr.responseText);
+                if(data.status==='verified'&&data.key){
+                    clearInterval(verifyInterval);
+                    document.getElementById('verifyStatus').innerHTML='<div class="success-box">DA HOAN THANH!</div>';
+                    userKeys.unshift({key:data.key,type:'FREE (Verified)',duration:'1 NGAY',time:new Date().toLocaleString()});
+                    saveAll();
+                    document.getElementById('keyDisplay').innerText=data.key;
+                    document.getElementById('keyMessage').innerText='Key Free da xac thuc!';
+                    document.getElementById('keyModal').classList.add('active');
+                }else if(count>=60){clearInterval(verifyInterval);}
+            }catch(e){}
+        };
+        xhr.send();
+    },5000);
+}
+
+function copyKey(){
+    var key=document.getElementById('keyDisplay').innerText;
+    navigator.clipboard.writeText(key).then(function(){showToast('Da copy!');}).catch(function(){prompt('Copy:',key);});
+}
+
+updateUI();
+</script>
+</body>
+</html>"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML)
+
+@app.route('/api/buy-key')
+def api_buy_key():
+    key_type = request.args.get('type', 'week')
+    key = generate_key()
+    bot_cmds = {'week': '1w', 'month': 'vip 1thang', 'forever': 'vip vinhvien'}
+    try:
+        requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+                     json={'chat_id': CHAT_ID, 'text': '/taokey ' + bot_cmds.get(key_type, '1w')}, timeout=5)
+    except: pass
+    if key_type == 'week':
+        data.setdefault("licenses", {})[key] = {"created_by": OWNER_ID, "expire_date": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")}
+    elif key_type == 'month':
+        data.setdefault("licenses", {})[key] = {"created_by": OWNER_ID, "expire_date": (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")}
+    else:
+        data.setdefault("licenses", {})[key] = {"created_by": OWNER_ID, "expire_date": None}
+    data.setdefault("keys_history", []).append({"key": key, "type": key_type, "time": datetime.now().isoformat()})
+    save_data(data)
+    return jsonify({"status": "success", "key": key})
+
+@app.route('/api/get-free-link')
+def api_get_free_link():
+    email = request.args.get('email', 'user')
+    token = secrets.token_hex(16)
+    callback_url = f"https://shopvip-zykg.onrender.com/verify/{token}"
+    try:
+        api_url = f"https://link4m.co/api-shorten/v2?api={LINK4M_API_KEY}&url={callback_url}"
+        res = requests.get(api_url, timeout=10)
+        link_data = res.json()
+        if link_data.get('status') == 'success':
+            pending_verify[token] = {"email": email, "time": time(), "verified": False, "key": None}
+            return jsonify({"status": "success", "link4m": link_data.get('shortenedUrl'), "token": token})
+        return jsonify({"status": "error", "message": "Loi tao link link4m"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/verify/<token>')
+def verify_page(token):
+    if token not in pending_verify:
+        return "<h1>Link khong hop le</h1>", 404
+    key = generate_key()
+    today = datetime.now().strftime("%Y-%m-%d")
+    data.setdefault("free_keys", {})[key] = {"created_by": OWNER_ID, "expire": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"), "email": pending_verify[token]["email"], "date": today, "verified": True}
+    data.setdefault("keys_history", []).append({"key": key, "type": "free_verified", "time": datetime.now().isoformat()})
+    save_data(data)
+    try:
+        requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage', json={'chat_id': CHAT_ID, 'text': '/taokey free 1ngay'}, timeout=5)
+    except: pass
+    pending_verify[token]["verified"] = True
+    pending_verify[token]["key"] = key
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Xac Thuc</title><style>body{background:#0f0c29;color:#fff;text-align:center;padding:50px;font-family:Arial}h2{color:#0f0}.key{color:#0f0;background:#000;padding:15px;border-radius:10px;border:1px dashed #0f0;font-family:monospace;font-size:18px}button{background:#0f0;color:#000;padding:12px 25px;border:none;border-radius:8px;font-weight:bold;font-size:16px;margin:10px}</style></head><body><h2>HOAN THANH NHIEM VU!</h2><div class="key">'+key+'</div><button onclick="navigator.clipboard.writeText(\''+key+'\')">COPY KEY</button><p style="color:#aaa">Dung /kichhoat '+key.substring(0,20)+'... trong bot</p></body></html>'
+
+@app.route('/api/check-verify')
+def api_check_verify():
+    token = request.args.get('token', '')
+    if token in pending_verify and pending_verify[token].get("verified"):
+        return jsonify({"status": "verified", "key": pending_verify[token]["key"]})
+    return jsonify({"status": "pending"})
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)            json.dump(d, f, ensure_ascii=False, indent=2)
     except: pass
 
 data = load_data()
